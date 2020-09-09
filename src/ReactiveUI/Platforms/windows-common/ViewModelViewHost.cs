@@ -36,7 +36,7 @@ namespace ReactiveUI
 #if HAS_UNO
         partial
 #endif
-        class ViewModelViewHost : TransitioningContentControl, IViewFor, IEnableLogger
+        class ViewModelViewHost : Grid, IViewFor, IEnableLogger
 #if !HAS_UNO
 #pragma warning disable SA1001 // Commas should be spaced correctly
         , IDisposable
@@ -61,6 +61,12 @@ namespace ReactiveUI
         public static readonly DependencyProperty ViewContractObservableProperty =
             DependencyProperty.Register(nameof(ViewContractObservable), typeof(IObservable<string>), typeof(ViewModelViewHost), new PropertyMetadata(Observable<string>.Default, ViewContractChanged));
 
+        /// <summary>
+        /// The view contract observable dependency property.
+        /// </summary>
+        public static readonly DependencyProperty ContentHostProperty =
+            DependencyProperty.Register(nameof(ContentHost), typeof(ContentControl), typeof(ViewModelViewHost), new PropertyMetadata(null));
+
         private readonly Subject<Unit> _updateViewModel = new Subject<Unit>();
         private readonly Subject<Unit> _updateViewContract = new Subject<Unit>();
         private string? _viewContract;
@@ -69,11 +75,17 @@ namespace ReactiveUI
         /// <summary>
         /// Initializes a new instance of the <see cref="ViewModelViewHost"/> class.
         /// </summary>
-        public ViewModelViewHost()
+        /// <param name="contentHostFunc">A method that generates the content host.</param>
+        public ViewModelViewHost(Func<ContentControl> contentHostFunc)
         {
-#if NETFX_CORE
-            DefaultStyleKey = typeof(ViewModelViewHost);
-#endif
+            if (contentHostFunc is null)
+            {
+                throw new ArgumentNullException(nameof(contentHostFunc));
+            }
+
+            var contentHost = contentHostFunc();
+
+            ContentHost.Style = new Style(typeof(ViewModelViewHost));
 
             if (ModeDetector.InUnitTestRunner())
             {
@@ -82,6 +94,8 @@ namespace ReactiveUI
                 // NB: InUnitTestRunner also returns true in Design Mode
                 return;
             }
+
+            Children.Add(ContentHost);
 
             var platform = Locator.Current.GetService<IPlatformOperations>();
             Func<string?> platformGetter = () => default;
@@ -117,6 +131,28 @@ namespace ReactiveUI
                 x => SizeChanged -= x)
                 .StartWith(platformGetter())
                 .DistinctUntilChanged();
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ViewModelViewHost"/> class.
+        /// </summary>
+        public ViewModelViewHost()
+            : this(DefaultContentControl)
+        {
+        }
+
+        /// <summary>
+        /// Gets or sets a default content control type to use for all view models.
+        /// </summary>
+        public static Func<ContentControl> DefaultContentControl { get; set; } = () => new TransitioningContentControl();
+
+        /// <summary>
+        /// Gets or sets the content host.
+        /// </summary>
+        public ContentControl ContentHost
+        {
+            get => (ContentControl)GetValue(ContentHostProperty);
+            set => SetValue(ContentHostProperty, value);
         }
 
         /// <summary>
@@ -201,7 +237,7 @@ namespace ReactiveUI
         {
             if (viewModel == null)
             {
-                Content = DefaultContent;
+                ContentHost.Content = DefaultContent;
                 return;
             }
 
@@ -210,14 +246,14 @@ namespace ReactiveUI
 
             if (viewInstance == null)
             {
-                Content = DefaultContent;
+                ContentHost.Content = DefaultContent;
                 this.Log().Warn($"The {nameof(ViewModelViewHost)} could not find a valid view for the view model of type {viewModel.GetType()} and value {viewModel}.");
                 return;
             }
 
             viewInstance.ViewModel = viewModel;
 
-            Content = viewInstance;
+            ContentHost.Content = viewInstance;
         }
     }
 }
